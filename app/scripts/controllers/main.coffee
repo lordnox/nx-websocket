@@ -1,5 +1,5 @@
 "use strict"
-angular.module("nxWebsocketApp").controller "MainCtrl", ($scope, nxWebsocket) ->
+angular.module("nx").controller "MainCtrl", ($scope, nxWebsocket) ->
   $scope.awesomeThings = [
     "AngularJS"
   , "Karma"

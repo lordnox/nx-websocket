@@ -1,5 +1,5 @@
 {
-  "name": "nxWebsocket",
+  "name": "nx-websocket-service",
   "version": "0.0.1",
   "dependencies": {
     "angular": "~1.0.7"
@@ -7,5 +7,13 @@
   "devDependencies": {
     "angular-mocks": "~1.0.7",
     "angular-scenario": "~1.0.7"
-  }
+  },
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    ".tmp",
+    "app"
+  ]
 }

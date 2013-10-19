@@ -1,4 +1,3 @@
-"use strict"
 
 describe "Service: nxWebsocket", ->
   
@@ -6,7 +5,7 @@ describe "Service: nxWebsocket", ->
   nxWebsocket = undefined
 
   # load the service's module
-  beforeEach module "nxWebsocketApp"
+  beforeEach module "nx"
 
   beforeEach inject ["nxWebsocket", (_nxWebsocket_) ->
     nxWebsocket = _nxWebsocket_
@@ -24,20 +23,37 @@ describe "Service: nxWebsocket", ->
       , msg, timeout || 100
       done
 
-
-  it "should be able to connect to a webSocket", ->
+  it "should have these api methods", ->
     nxWebsocket.should.have.keys [
       "socket"
-    , "open"
-    , "connect"
-    , "publish"
-    , "subscribe"
-    , "unsubscribe"
-    , "request"
-    , "send"
+      "open"
+      "connect"
+      "connected"
+      "publish"
+      "subscribe"
+      "unsubscribe"
+      "request"
+      "send"
     ]
 
+  describe "a basic socket", ->
+    beforeEach ->
+      @socket = nxWebsocket.socket
+
+    it "should have these api methods", ->
+      #console.log Object.keys @socket
+      @socket.should.have.keys [
+        "uri"
+        "header"
+        "socket"
+        "ready"
+        "responses"
+        "subscribtions"
+        "connected"
+      ]
+
   describe "default websocket", ->
+
     it "should try ws://localhost", ->
       done = @async()
       window.WebSocket = mock {}, (uri, header) ->
@@ -49,8 +65,12 @@ describe "Service: nxWebsocket", ->
         done()
       nxWebsocket.send()
 
-  describe "class: nxWebsocket", ->
-    it "should send data via the WebSocket send method, after connecting", ->
+  describe "class: nxWebsocket", ->    
+
+    it "should be disconnected", ->
+      nxWebsocket.connected.should.be.false
+
+    it "should connect when we try to send data", ->
       # this is an async test
       done = @async()
 
@@ -58,6 +78,7 @@ describe "Service: nxWebsocket", ->
       window.WebSocket = mock 
         # we only test the send method
         send: (packet) ->
+          packet = JSON.parse packet
           packet.should.have.keys [
             'uuid'
           , 'test'
@@ -71,6 +92,26 @@ describe "Service: nxWebsocket", ->
           @should.have.keys [
             'onopen', 'onclose', 'onerror', 'onmessage', 'send'
           ]
+          @onopen()
+        , 0
+      
+      # run the test, it will timeout after 100ms @see async
+      nxWebsocket.send test: 123
+
+    it "should be connceted after we send data", ->
+      # this is an async test
+      done = @async()
+
+      # Generate a mocked WebSocket that will test exactly one use-case
+      window.WebSocket = mock 
+        # we only test the send method
+        send: (packet) ->
+          nxWebsocket.connected.should.be.true
+          done()
+        # the constructor
+      , (uri, header) ->
+        # to make this async
+        setTimeout =>
           @onopen()
         , 0
       
@@ -97,6 +138,7 @@ describe "Service: nxWebsocket", ->
 
       window.WebSocket = mock
         send: (packet) ->
+          packet = JSON.parse packet
           packet.data.should.eql test: 123
           done()
       , -> setTimeout((=> @onopen()), 0)
@@ -110,7 +152,7 @@ describe "Service: nxWebsocket", ->
 
       window.WebSocket = mock
         send: (packet) ->
-          @onmessage packet
+          @onmessage {data: packet}
       , -> setTimeout((=> @onopen()), 0)
 
       nxWebsocket.request (data) ->
@@ -129,7 +171,7 @@ describe "Service: nxWebsocket", ->
         done = @async()
         window.WebSocket = mock
           send: (packet) ->
-            @onmessage packet
+            @onmessage {data: packet}
         , -> setTimeout((=> @onopen()), 0)
 
         nxWebsocket.request $scope
@@ -143,6 +185,7 @@ describe "Service: nxWebsocket", ->
 
         window.WebSocket = mock 
           send: (packet) ->
+            packet = JSON.parse packet
             packet.should.have.keys [
               'uuid'
             , 'pubsub'

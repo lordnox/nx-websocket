@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var NxWebsocket, app, __slice = [].slice;
-  app = angular.module('nxWebsocketApp');
+  app = angular.module('nx');
   app.provider('nxWebsocket', NxWebsocket = function () {
     var binder, config, isScope, nxWebsocket, openSockets, uuid;
     openSockets = {};
@@ -16,6 +16,9 @@
       header: [],
       timeout: 500,
       socket: { emit: 'nxSocket::response' }
+    };
+    this.setUri = function (uri) {
+      return config.uri = uri;
     };
     binder = function (obj, method) {
       return function () {
@@ -39,7 +42,7 @@
         }
         packet.uuid = packet.uuid || uuid();
         return this._connect(function (socket) {
-          return socket.send(packet);
+          return socket.send(JSON.stringify(packet));
         });
       };
       nxWebsocket.prototype.request = function (data, response, timeout) {
@@ -97,7 +100,9 @@
         if (typeof response === 'function') {
           return response.call(this, packet.data);
         }
-        return response.$emit(config.socket.emit, packet.data);
+        return response.$apply(function () {
+          return response.$emit(config.socket.emit, packet.data);
+        });
       };
       nxWebsocket.prototype._connect = function (fn) {
         var socket, _this = this;
@@ -112,7 +117,12 @@
           };
           socket.onclose = function () {
           };
-          socket.onmessage = function (packet) {
+          socket.onmessage = function (_packet) {
+            var packet;
+            if (!_packet.hasOwnProperty('data')) {
+              return new Error('Missing packet content');
+            }
+            packet = JSON.parse(_packet.data);
             if (!packet.hasOwnProperty('data')) {
               return;
             }

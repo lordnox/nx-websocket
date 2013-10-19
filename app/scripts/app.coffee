@@ -1,5 +1,5 @@
 "use strict"
-angular.module("nxWebsocketApp", []).config ($routeProvider) ->
+angular.module("nx", []).config ($routeProvider) ->
   $routeProvider.when("/",
     templateUrl: "views/main.html"
     controller: "MainCtrl"

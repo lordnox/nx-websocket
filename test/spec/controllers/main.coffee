@@ -2,7 +2,7 @@
 describe "Controller: MainCtrl", ->
   
   # load the controller's module
-  beforeEach module("nxWebsocketApp")
+  beforeEach module("nx")
   MainCtrl = undefined
   scope = undefined
   

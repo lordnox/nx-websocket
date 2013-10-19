@@ -188,6 +188,12 @@ module.exports = function (grunt) {
           cwd: '<%= yeoman.tmp %>/<%= yeoman.app %>/scripts/services',
           dest: '<%= yeoman.dist %>',
           src: '*.js'
+        }, {
+          expand: true,
+          dot: true,
+          cwd: '<%= yeoman.tmp %>/<%= yeoman.app %>/scripts/services',
+          dest: '<%= yeoman.dist %>',
+          src: '*.js.map'
         }]
       },
       styles: {

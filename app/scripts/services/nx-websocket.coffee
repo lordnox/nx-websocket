@@ -1,6 +1,6 @@
 "use strict"
 
-app = angular.module("nxWebsocketApp")
+app = angular.module("nx")
 
 app.provider "nxWebsocket", NxWebsocket = ->
 
@@ -18,7 +18,11 @@ app.provider "nxWebsocket", NxWebsocket = ->
     header: []
     timeout: 500
     socket: 
-      emit: 'nxSocket::response'
+      emit      : 'nxSocket::response'
+      close     : 'nxSocket::close'
+      broadcast : 'nxSocket::broadcast'
+
+  @setUri = (uri) -> config.uri = uri
 
   binder = (obj, method) -> (args...) -> obj[method].apply obj, args
 
@@ -29,6 +33,7 @@ app.provider "nxWebsocket", NxWebsocket = ->
       @ready = []
       @responses = {}
       @subscribtions = {}
+      @connected = false
 
     ###
       nxWebsocket::send
@@ -39,7 +44,7 @@ app.provider "nxWebsocket", NxWebsocket = ->
     send: (packet = {}) ->
       packet.uuid = packet.uuid or uuid()
       @_connect (socket) ->
-        socket.send packet
+        socket.send JSON.stringify packet
 
     ###
       nxWebsocket::request
@@ -109,7 +114,13 @@ app.provider "nxWebsocket", NxWebsocket = ->
     _handleResponse: (packet) ->
       response = @responses[packet.response]
       return response.call @, packet.data if typeof response is 'function'
-      response.$emit config.socket.emit, packet.data
+      response.$apply ->
+        response.$emit config.socket.emit, packet.data
+
+    _close: (err) ->
+      @connected = false
+      @socket = null
+      @_emit config.socket.close, err
 
     ###
       nxWebsocket::_connect
@@ -120,11 +131,15 @@ app.provider "nxWebsocket", NxWebsocket = ->
     _connect: (fn) ->
       if not @socket
         socket = new WebSocket @uri, @header
-        socket.onopen = => angular.forEach @ready, (fn) ->
-          fn.call socket, socket
-        socket.onerror = =>
-        socket.onclose = =>
-        socket.onmessage = (packet) =>
+        socket.onopen = => 
+          @connected = true
+          angular.forEach @ready, (fn) ->          
+            fn.call socket, socket
+        socket.onerror = (err) => @_close err
+        socket.onclose = => @_close()
+        socket.onmessage = (_packet) =>
+          return new Error "Missing packet content" if not _packet.hasOwnProperty 'data'
+          packet = JSON.parse _packet.data
           return if not packet.hasOwnProperty 'data'
           return @_handleResponse packet if packet.response
 
@@ -134,10 +149,9 @@ app.provider "nxWebsocket", NxWebsocket = ->
       @ready.push fn
 
   # Provider API
-  @$get = ->
-    connect = (uri, header) -> new nxWebsocket uri, header
-    socket = connect config.uri, config.header
-
+  connect = (uri, header) -> new nxWebsocket uri, header
+  socket = connect config.uri, config.header
+  api =
     socket: socket
     open: connect
     connect: connect
@@ -153,3 +167,7 @@ app.provider "nxWebsocket", NxWebsocket = ->
     publish: binder socket, 'publish'
     subscribe: binder socket, 'subscribe'
     unsubscribe: binder socket, 'unsubscribe'
+
+  api.__defineGetter__ 'connected', -> socket.connected
+
+  @$get = -> api

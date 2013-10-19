@@ -6,6 +6,7 @@ window.createAsyncWebSocketMock = (done, async) ->
   window.WebSocket = mock
     readyState: 1
     send: (packet) ->
+      packet = JSON.parse packet
       packet.pubsub.should.eql job.packet
       next index + 1
   , -> # ignore constructor with readyState = 1
