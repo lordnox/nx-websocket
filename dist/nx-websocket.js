@@ -3,7 +3,13 @@
   var NxWebsocket, app,
     __slice = [].slice;
 
-  app = angular.module("nx");
+  app = null;
+
+  try {
+    app = angular.module("nx");
+  } catch (_error) {
+    app = angular.module("nx", []);
+  }
 
   app.provider("nxWebsocket", NxWebsocket = function() {
     var api, config, connect, getter, isScope, nxPaket, nxWebsocket, openSockets, socket, uuid;

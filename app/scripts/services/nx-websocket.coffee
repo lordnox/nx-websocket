@@ -1,6 +1,11 @@
 "use strict"
 
-app = angular.module("nx")
+app = null
+try
+  app = angular.module "nx"
+catch
+  app = angular.module "nx", []
+
 
 app.provider "nxWebsocket", NxWebsocket = ->
 
