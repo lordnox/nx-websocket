@@ -1,6 +1,6 @@
 
 describe "Service: nxWebsocket", ->
-  
+
   # instantiate service
   nxWebsocket = undefined
 
@@ -11,13 +11,13 @@ describe "Service: nxWebsocket", ->
     nxWebsocket = _nxWebsocket_
   ]
 
-  beforeEach ->    
+  beforeEach ->
     @async = (msg, timeout) ->
       called = false
       done = -> called = true
       if typeof msg is 'number'
         timeout = msg
-        msg = undefined      
+        msg = undefined
       waitsFor ->
         called
       , msg, timeout || 100
@@ -41,31 +41,59 @@ describe "Service: nxWebsocket", ->
       @socket = nxWebsocket.socket
 
     it "should have these api methods", ->
-      #console.log Object.keys @socket
       @socket.should.have.keys [
         "uri"
-        "header"
+        "protocol"
         "socket"
         "ready"
         "responses"
         "subscribtions"
         "connected"
+        "scopes"
+        "options"
       ]
 
-  describe "default websocket", ->
+  describe "a basic packet", ->
+
+    it "should be send by .send()", ->
+      # this is an async test
+      done = @async()
+
+      # Generate a mocked WebSocket that will test exactly one use-case
+      window.WebSocket = mock
+        send: (message) ->
+          message.should.be.a.String
+          packet = JSON.parse message
+          console.log packet
+          packet.should.have.keys [
+            "uuid"
+            "gid"
+            "head"
+            "body"
+          ]
+          packet.body.should.eql
+            some: 'arbitrary'
+            data: 123
+          done()
+      , (uri, protocol) ->
+        # to make this async
+        setTimeout (=> @onopen()), 0
+
+      # run the test, it will timeout after 100ms @see async
+      nxWebsocket.send
+        some: 'arbitrary'
+        data: 123
+
+  describe "default nxWebsocket", ->
 
     it "should try ws://localhost", ->
       done = @async()
-      window.WebSocket = mock {}, (uri, header) ->
+      window.WebSocket = mock {}, (uri, protocol) ->
         should.exist uri
-        should.exist header
+        should.not.exist protocol
         uri.should.be.equal 'ws://localhost'
-        header.should.be.an.Array
-        header.should.have.length 0
         done()
       nxWebsocket.send()
-
-  describe "class: nxWebsocket", ->    
 
     it "should be disconnected", ->
       nxWebsocket.connected.should.be.false
@@ -75,18 +103,14 @@ describe "Service: nxWebsocket", ->
       done = @async()
 
       # Generate a mocked WebSocket that will test exactly one use-case
-      window.WebSocket = mock 
+      window.WebSocket = mock
         # we only test the send method
-        send: (packet) ->
-          packet = JSON.parse packet
-          packet.should.have.keys [
-            'uuid'
-          , 'test'
-          ]
+        send: (message) ->
+          packet = (JSON.parse message).body
           packet.test.should.equal 123
           done()
         # the constructor
-      , (uri, header) ->
+      , (uri, protocol) ->
         # to make this async
         setTimeout =>
           @should.have.keys [
@@ -94,7 +118,7 @@ describe "Service: nxWebsocket", ->
           ]
           @onopen()
         , 0
-      
+
       # run the test, it will timeout after 100ms @see async
       nxWebsocket.send test: 123
 
@@ -103,18 +127,35 @@ describe "Service: nxWebsocket", ->
       done = @async()
 
       # Generate a mocked WebSocket that will test exactly one use-case
-      window.WebSocket = mock 
+      window.WebSocket = mock
         # we only test the send method
         send: (packet) ->
           nxWebsocket.connected.should.be.true
           done()
         # the constructor
-      , (uri, header) ->
+      , (uri, protocol) ->
         # to make this async
         setTimeout =>
           @onopen()
         , 0
-      
+
+      # run the test, it will timeout after 100ms @see async
+      nxWebsocket.send test: 123
+
+    it "should be not connceted after an error is emitted", ->
+      # this is an async test
+      done = @async()
+
+      # Generate a mocked WebSocket that will test exactly one use-case
+      window.WebSocket = mock {}
+      , (uri, protocol) ->
+        # to make this async
+        setTimeout =>
+          @onerror new Error 'ERROR!'
+          nxWebsocket.connected.should.be.false
+          done()
+        , 0
+
       # run the test, it will timeout after 100ms @see async
       nxWebsocket.send test: 123
 
@@ -137,9 +178,9 @@ describe "Service: nxWebsocket", ->
       done = @async()
 
       window.WebSocket = mock
-        send: (packet) ->
-          packet = JSON.parse packet
-          packet.data.should.eql test: 123
+        send: (message) ->
+          packet = (JSON.parse message).body
+          packet.should.eql test: 123
           done()
       , -> setTimeout((=> @onopen()), 0)
 
@@ -151,8 +192,9 @@ describe "Service: nxWebsocket", ->
       done = @async()
 
       window.WebSocket = mock
-        send: (packet) ->
-          @onmessage {data: packet}
+        send: (message) ->
+          @onmessage
+            data: message
       , -> setTimeout((=> @onopen()), 0)
 
       nxWebsocket.request (data) ->
@@ -167,11 +209,83 @@ describe "Service: nxWebsocket", ->
         $scope = $root.$new()
       ]
 
+      it "should emit a 'nxSocket::connect' event on the scope", ->
+        done = @async()
+
+        window.WebSocket = mock
+          send: (message) ->
+            @onmessage
+              data: message
+        , -> setTimeout((=> @onopen()), 0)
+
+        $scope.$on 'nxSocket::connect', ->
+          done()
+
+        nxWebsocket.socket.scopes.push $scope
+        nxWebsocket.send test: 123
+
+      it "should emit a 'nxSocket::broadcast' event when a broadcast comes in", ->
+        done = @async()
+
+        window.WebSocket = mock
+          send: (message) ->
+            @onmessage
+              data: message
+        , -> setTimeout((=> @onopen()), 0)
+
+        $scope.$on 'nxSocket::broadcast', (data) ->
+          done()
+
+        nxWebsocket.socket.scopes.push $scope
+        nxWebsocket.send test: 123
+
+      it "should emit a 'nxSocket::close' event when onclose is called", ->
+        # this is an async test
+        done = @async()
+
+        # Generate a mocked WebSocket that will test exactly one use-case
+        window.WebSocket = mock {}
+        , (uri, protocol) ->
+          # to make this async
+          setTimeout =>
+            @onclose()
+          , 0
+
+        # run the test, it will timeout after 100ms @see async
+        nxWebsocket.send test: 123
+        nxWebsocket.socket.scopes.push $scope
+
+        $scope.$on 'nxSocket::close', (scope, err) ->
+          should.not.exist err
+          done()
+
+      it "should emit a 'nxSocket::close' event when onerror is called", ->
+        # this is an async test
+        done = @async()
+
+        # Generate a mocked WebSocket that will test exactly one use-case
+        window.WebSocket = mock {}
+        , (uri, protocol) ->
+          # to make this async
+          setTimeout =>
+            @onerror new Error 'ERROR!'
+          , 0
+
+        # run the test, it will timeout after 100ms @see async
+        nxWebsocket.send test: 123
+        nxWebsocket.socket.scopes.push $scope
+
+        $scope.$on 'nxSocket::close', (scope, err) ->
+          should.exist err
+          message = err.message
+          message.should.be.equal 'ERROR!'
+          done()
+
       it "should respond by emitting on a $scope", ->
         done = @async()
         window.WebSocket = mock
-          send: (packet) ->
-            @onmessage {data: packet}
+          send: (message) ->
+            @onmessage data: message
         , -> setTimeout((=> @onopen()), 0)
 
         nxWebsocket.request $scope
@@ -183,21 +297,20 @@ describe "Service: nxWebsocket", ->
       it "should send a configuration message when subscribing", ->
         done = @async()
 
-        window.WebSocket = mock 
-          send: (packet) ->
-            packet = JSON.parse packet
-            packet.should.have.keys [
-              'uuid'
-            , 'pubsub'
+        window.WebSocket = mock
+          send: (message) ->
+            packet = JSON.parse message
+            packet.head.should.have.keys [
+              'pubsub'
             ]
-            packet.pubsub.should.eql { subscribe: ['channel'] }
+            packet.head.pubsub.should.eql { subscribe: ['channel'] }
             done()
         , -> setTimeout((=> @onopen()), 0)
-        
+
         nxWebsocket.subscribe 'channel', $scope
 
       it "should have the $scope in the subscribtion list", ->
-        window.WebSocket = mock 
+        window.WebSocket = mock
         nxWebsocket.subscribe 'channel', $scope
         nxWebsocket.socket.subscribtions.channel.should.have.length 1
 
@@ -225,16 +338,61 @@ describe "Service: nxWebsocket", ->
         done = @async()
 
         async = [
-          fn: ->        
+          fn: ->
             nxWebsocket.subscribe 'channel', $scope
-          packet: 
-            subscribe: [ 'channel' ] 
+          head:
+            pubsub:
+              subscribe: [ 'channel' ]
         ,
-          fn: ->        
+          fn: ->
             nxWebsocket.unsubscribe 'channel', $scope
-          packet: 
-            unsubscribe: 'channel'
+          head:
+            pubsub:
+              unsubscribe: 'channel'
         ]
 
         createAsyncWebSocketMock done, async
+
+  describe "configurated nxWebsocket", ->
+
+    it "should connect to ws://different", ->
+      done = @async()
+      window.WebSocket = mock {}, (uri, protocol) ->
+        should.exist uri
+        should.not.exist protocol
+        uri.should.be.equal 'ws://different'
+        done()
+
+      socket = nxWebsocket.connect "ws://different"
+      socket.send()
+
+    it "should be able to set a protocol", ->
+      done = @async()
+      window.WebSocket = mock {}, (uri, protocol) ->
+        should.exist uri
+        should.exist protocol
+        uri.should.be.equal 'ws://different'
+        protocol.should.be.a.String
+        protocol.should.be.equal 'protocol'
+        done()
+
+      socket = nxWebsocket.connect "ws://different", 'protocol'
+      socket.send()
+
+    it "should be able to connect with a configuration object", ->
+      done = @async()
+      window.WebSocket = mock {}, (uri, protocol) ->
+        should.exist uri
+        should.exist protocol
+        uri.should.be.equal 'ws://different'
+        protocol.should.be.equal "protocol"
+        done()
+
+      socket = nxWebsocket.connect
+        uri: "ws://different"
+        protocol: "protocol"
+      socket.send()
+
+
+
 

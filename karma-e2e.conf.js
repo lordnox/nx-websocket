@@ -8,15 +8,21 @@ module.exports = function(config) {
 
     // testing framework to use (jasmine/mocha/qunit/...)
     frameworks: ['jasmine', 'sinon-chai'],
+    /**
+     * How to report, by default.
+     */
+    reporters: 'dots',
 
     // list of files / patterns to load in the browser
     files: [
       'app/bower_components/angular/angular.js',
       'app/bower_components/angular-mocks/angular-mocks.js',
-      '.tmp/app/scripts/{*,*/*}.js',
-      '.tmp/test/mock/*.js',
-      '.tmp/test/spec/**/*.js'
+      'app/scripts/{*,*/*}.coffee',
+      'test/mock/*.coffee',
+      'test/spec/**/*.coffee'
     ],
+
+    preprocessors: {'**/*.coffee': 'coffee'},
 
     // list of files / patterns to exclude
     exclude: [],

@@ -13,39 +13,67 @@ app.provider "nxWebsocket", NxWebsocket = ->
   isScope = (scope) ->
     typeof scope is 'object' and typeof scope.$emit is 'function'
 
-  config = 
+  config =
     uri: 'ws://localhost'
-    header: []
+    protocol: undefined
     timeout: 500
-    socket: 
+    socket:
       emit      : 'nxSocket::response'
+      connect   : 'nxSocket::connect'
       close     : 'nxSocket::close'
       broadcast : 'nxSocket::broadcast'
 
   @setUri = (uri) -> config.uri = uri
 
-  binder = (obj, method) -> (args...) -> obj[method].apply obj, args
+  getter = (proto, obj) ->
+    angular.forEach obj, (fn, key) ->
+      proto.__defineGetter__ key, ->
+        fn.call proto
+
+  class nxPaket
+    constructor: (head, body) ->
 
   # external nxWebSocket class, `replaces` WebSocket
   class nxWebsocket
-    constructor: (@uri, @header) ->
-      @socket = null
-      @ready = []
-      @responses = {}
-      @subscribtions = {}
-      @connected = false
+    constructor: (options) ->
+
+      @socket         = null
+      @ready          = []
+      @responses      = {}
+      @subscribtions  = {}
+      @connected      = false
+      @scopes         = []
+
+      options        = angular.extend {}, config, options
+      getter @,
+        uri     : -> options.uri
+        protocol: -> options.protocol
+        options : -> options
 
     ###
-      nxWebsocket::send
-      
-      basic WebSocket send method
-      @param packet that will be send through the ws
+      internal send method
     ###
-    send: (packet = {}) ->
-      packet.uuid = packet.uuid or uuid()
+    _send: (head, body) ->
+      packet =
+        uuid: head.uuid or uuid()
+        gid: head.gid or uuid()
+        head: head
+        body: body
       @_connect (socket) ->
         socket.send JSON.stringify packet
 
+
+    ###
+      nxWebsocket::send
+
+      basic WebSocket send method
+      @param packet that will be send through the ws
+    ###
+    send: (head, body) ->
+      if angular.isUndefined body
+        body = head
+        head = {}
+      @_send head, body
     ###
       nxWebsocket::request
 
@@ -56,14 +84,14 @@ app.provider "nxWebsocket", NxWebsocket = ->
       [@param] config.timeout override
     ###
     request: (data, response, timeout) ->
-      if typeof data is 'function' or 
-        not response or 
+      if typeof data is 'function' or
+        not response or
         not typeof response.$emit is 'function'
-          timeout = response 
-          response = data
-          data = null
-      timeout = config.timeout if not timeout
-      data = null if not data
+          timeout   = response
+          response  = data
+          data      = null
+      timeout = @options.timeout if not timeout
+      data    = null if not data
 
       if typeof response isnt 'function' and
          not isScope response
@@ -71,9 +99,8 @@ app.provider "nxWebsocket", NxWebsocket = ->
 
       id = uuid()
       @responses[id] = response
-      @send
-        response: id
-        data: data
+      head = response: id
+      @send head, data
 
     ###
       nxWebsocket::subscribe - pubsub-plugin
@@ -88,9 +115,9 @@ app.provider "nxWebsocket", NxWebsocket = ->
       angular.forEach channels, (channel) =>
         if @subscribtions.hasOwnProperty channel
           @subscribtions[channel].push $scope
-        else 
+        else
           @subscribtions[channel] = [$scope]
-      @send pubsub: subscribe: channels
+      @send pubsub: subscribe: channels, null
 
     ###
       nxWebsocket::unsubscribe - pubsub-plugin
@@ -99,11 +126,25 @@ app.provider "nxWebsocket", NxWebsocket = ->
       @param channel to unsubscribe the scope from
       @param scope that is unsubscribing
     ###
-    unsubscribe: (channel, $scope) ->      
+    unsubscribe: (channel, $scope) ->
       return if not @subscribtions.hasOwnProperty channel
       @subscribtions[channel].filter (scope) -> scope.$id is $scope.$id
-      @send pubsub: unsubscribe: channel
-      
+      @send pubsub: unsubscribe: channel, null
+
+    ###
+      nxWebsocket::_emit
+
+      internal emitter to send an event to all connected scopes
+      first parameter is the name of the event, other arguments
+      will be applied to the $emit method
+      @param event
+    ###
+    _emit: (args...) ->
+      angular.forEach @scopes, (scope) ->
+        scope.$emit.apply scope, args
+        # we need to tell this angular scope that something happend
+        scope.$digest()
+
     ###
       nxWebsocket::_handleResponse
 
@@ -112,15 +153,18 @@ app.provider "nxWebsocket", NxWebsocket = ->
       @param packet
     ###
     _handleResponse: (packet) ->
-      response = @responses[packet.response]
-      return response.call @, packet.data if typeof response is 'function'
-      response.$apply ->
-        response.$emit config.socket.emit, packet.data
+      head = packet.head
+      body = packet.body
+      return @_emit @options.socket.broadcast, body if not head.response
+      response = @responses[head.response]
+      return response.call @, body if typeof response is 'function'
+      response.$apply =>
+        response.$emit @options.socket.emit, body
 
     _close: (err) ->
       @connected = false
       @socket = null
-      @_emit config.socket.close, err
+      @_emit @options.socket.close, err
 
     ###
       nxWebsocket::_connect
@@ -130,18 +174,18 @@ app.provider "nxWebsocket", NxWebsocket = ->
     ###
     _connect: (fn) ->
       if not @socket
-        socket = new WebSocket @uri, @header
-        socket.onopen = => 
+        socket = new WebSocket @options.uri, @options.protocol
+        socket.onopen = =>
           @connected = true
-          angular.forEach @ready, (fn) ->          
+          @_emit @options.socket.connect
+          angular.forEach @ready, (fn) ->
             fn.call socket, socket
         socket.onerror = (err) => @_close err
         socket.onclose = => @_close()
         socket.onmessage = (_packet) =>
           return new Error "Missing packet content" if not _packet.hasOwnProperty 'data'
           packet = JSON.parse _packet.data
-          return if not packet.hasOwnProperty 'data'
-          return @_handleResponse packet if packet.response
+          @_handleResponse packet
 
         @socket = socket
 
@@ -149,25 +193,28 @@ app.provider "nxWebsocket", NxWebsocket = ->
       @ready.push fn
 
   # Provider API
-  connect = (uri, header) -> new nxWebsocket uri, header
-  socket = connect config.uri, config.header
+  # connection method
+  connect = (options, protocol) ->
+    if typeof options is 'string'
+      options = uri: options
+    if protocol
+      options.protocol = protocol
+    new nxWebsocket options
+
+  socket = null
   api =
-    socket: socket
-    open: connect
-    connect: connect
+    connect: connect # to connect a socket
+    open: connect # or to open a connection
 
-    #send: (args...) -> socket.send.apply socket, args
-    #request: (args...) -> socket.request.apply socket, args
-    #publish: (args...) -> socket.publish.apply socket, args
-    #subscribe: (args...) -> socket.subscribe.apply socket, args
-    #unsubscribe: (args...) -> socket.unsubscribe.apply socket, args
+    send: (args...) -> api.socket.send.apply socket, args
+    request: (args...) -> api.socket.request.apply socket, args
+    publish: (args...) -> api.socket.publish.apply socket, args
+    subscribe: (args...) -> api.socket.subscribe.apply socket, args
+    unsubscribe: (args...) -> api.socket.unsubscribe.apply socket, args
 
-    send: binder socket, 'send'
-    request: binder socket, 'request'
-    publish: binder socket, 'publish'
-    subscribe: binder socket, 'subscribe'
-    unsubscribe: binder socket, 'unsubscribe'
-
-  api.__defineGetter__ 'connected', -> socket.connected
+  api.__defineGetter__ 'connected', -> api.socket.connected
+  api.__defineGetter__ 'socket', ->
+    return socket if socket
+    return socket = connect config.uri, config.protocol
 
   @$get = -> api
